@@ -59,25 +59,34 @@ inicio = st.date_input(
 # feriado, a aplicação começa no próximo dia útil).
 periodo = diario[diario["data"] >= pd.Timestamp(inicio)]
 
-grafico = pd.DataFrame(
-    {
-        "data": periodo["data"],
-        "CDI": base_100(periodo["cdi_indice"]),
-    }
-)
+# Uma linha precisa de pelo menos dois pontos. Em vez de esconder datas no
+# seletor, avisa e não desenha; o resto do dashboard continua sendo exibido.
+if len(periodo) < 2:
+    st.warning(
+        f"O período a partir de {periodo['data'].iloc[0]:%d/%m/%Y} tem só "
+        f"{len(periodo)} dia com dado. Escolha uma data inicial anterior "
+        "para ver a evolução."
+    )
+else:
+    grafico = pd.DataFrame(
+        {
+            "data": periodo["data"],
+            "CDI": base_100(periodo["cdi_indice"]),
+        }
+    )
 
-fig = px.line(
-    grafico,
-    x="data",
-    y="CDI",
-    title=f"R$ 100 aplicados no CDI em {periodo['data'].iloc[0]:%d/%m/%Y}",
-)
-fig.update_traces(hovertemplate="%{x|%d/%m/%Y}<br>R$ %{y:.2f}<extra></extra>")
-fig.update_layout(
-    separators=",.",            # vírgula decimal e ponto de milhar
-    xaxis_title=None,
-    yaxis_title="R$",
-    xaxis_tickformat="%m/%Y",   # meses em número, sem nomes em inglês
-)
+    fig = px.line(
+        grafico,
+        x="data",
+        y="CDI",
+        title=f"R$ 100 aplicados no CDI em {periodo['data'].iloc[0]:%d/%m/%Y}",
+    )
+    fig.update_traces(hovertemplate="%{x|%d/%m/%Y}<br>R$ %{y:.2f}<extra></extra>")
+    fig.update_layout(
+        separators=",.",            # vírgula decimal e ponto de milhar
+        xaxis_title=None,
+        yaxis_title="R$",
+        xaxis_tickformat="%m/%Y",   # meses em número, sem nomes em inglês
+    )
 
-st.plotly_chart(fig)
+    st.plotly_chart(fig)

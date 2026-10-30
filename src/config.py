@@ -12,6 +12,8 @@ from pathlib import Path
 # formato e datas são passados como parâmetros da requisição no extract.
 SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados"
 
+TIMEOUT_REQUISICAO = 30
+
 # Séries do SGS usadas no pipeline (nome -> código).
 # O nome vira o nome do arquivo em data/raw (ex.: cdi.csv).
 SERIES_SGS = {
@@ -47,3 +49,4 @@ DATA_INICIO_EXTRACAO = DATA_INICIO_ANALISE.replace(year=DATA_INICIO_ANALISE.year
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
 DIR_RAW = RAIZ_PROJETO / "data" / "raw"
 DIR_PROCESSED = RAIZ_PROJETO / "data" / "processed"
+ARQUIVO_DIARIO = DIR_PROCESSED / "diario.csv"

@@ -28,3 +28,7 @@ def anualizar_taxa_diaria(
 ) -> pd.Series:
     """Converte uma taxa em % ao dia útil para % ao ano (base 252 dias úteis)."""
     return ((1 + taxa_pct_dia / 100) ** dias - 1) * 100
+
+def base_100(indice: pd.Series) -> pd.Series:
+    """Reescala um índice para valer 100 na primeira posição da série recebida."""
+    return indice / indice.iloc[0] * 100

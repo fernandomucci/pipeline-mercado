@@ -49,3 +49,4 @@ DATA_INICIO_EXTRACAO = DATA_INICIO_ANALISE.replace(year=DATA_INICIO_ANALISE.year
 RAIZ_PROJETO = Path(__file__).resolve().parent.parent
 DIR_RAW = RAIZ_PROJETO / "data" / "raw"
 DIR_PROCESSED = RAIZ_PROJETO / "data" / "processed"
+ARQUIVO_DIARIO = DIR_PROCESSED / "diario.csv"

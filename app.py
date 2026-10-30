@@ -11,6 +11,9 @@ import streamlit as st
 from src.config import ARQUIVO_DIARIO, DATA_INICIO_ANALISE
 from src.indicadores import base_100
 
+# Espaçamento entre rótulos do eixo, em milissegundos (unidade do Plotly).
+QUINZE_DIAS_MS = 15 * 24 * 60 * 60 * 1000
+
 
 def formatar_pct(valor: float) -> str:
     """13.6512 -> '13,65%' (vírgula decimal, padrão brasileiro)."""
@@ -86,7 +89,15 @@ else:
         separators=",.",            # vírgula decimal e ponto de milhar
         xaxis_title=None,
         yaxis_title="R$",
-        xaxis_tickformat="%m/%Y",   # meses em número, sem nomes em inglês
+        # O formato dos rótulos depende do espaçamento que o Plotly escolhe
+        # (vale também com zoom). Os passos automáticos do Plotly saltam de
+        # 14 dias direto para 1 mês, então o corte em 15 dias separa
+        # "menos de um mês entre rótulos" de "um mês ou mais" sem depender
+        # de como o Plotly desempata um valor exatamente na fronteira.
+        xaxis_tickformatstops=[
+            dict(dtickrange=[None, QUINZE_DIAS_MS], value="%d/%m/%y"),
+            dict(dtickrange=[QUINZE_DIAS_MS, None], value="%m/%Y"),
+        ],
     )
 
     st.plotly_chart(fig)

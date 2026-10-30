@@ -61,7 +61,7 @@ pipeline-mercado/
 │   ├── load.py           # grava data/processed
 │   ├── indicadores.py    # funções de cálculo puras
 │   ├── validate.py       # confere resultados contra valores oficiais
-│   └── pipeline.py       # executa extração → transformação → carga → validação
+│   └── pipeline.py       # executa extração → transformação → validação → carga
 └── data/
     ├── raw/              # dados como vieram das fontes
     └── processed/        # diario.csv e mensal.csv

@@ -12,6 +12,8 @@ from pathlib import Path
 # formato e datas são passados como parâmetros da requisição no extract.
 SGS_URL = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados"
 
+TIMEOUT_REQUISICAO = 30
+
 # Séries do SGS usadas no pipeline (nome -> código).
 # O nome vira o nome do arquivo em data/raw (ex.: cdi.csv).
 SERIES_SGS = {

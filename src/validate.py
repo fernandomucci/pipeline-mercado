@@ -16,7 +16,11 @@ def validar_cdi_mensal(diario: pd.DataFrame) -> None:
 
     Levanta ValueError se algum mês ficar fora da tolerância.
     """
-    calculado = variacao_mensal_d1(diario["data"], diario["cdi_indice"])
+    # Só as datas em que o CDI existe de fato: a taxa ao ano nunca é
+    # preenchida, então ela marca as datas reais da série 12. Isso deixa de
+    # fora o fim vazio e, quando o Ibovespa entrar, datas só da bolsa.
+    cdi = diario.dropna(subset=["cdi_taxa_ano"])
+    calculado = variacao_mensal_d1(cdi["data"], cdi["cdi_indice"])
 
     bruto = baixar_serie_sgs(
         SERIE_VALIDACAO_CDI_MES, DATA_INICIO_EXTRACAO, data_fim_padrao()
@@ -46,7 +50,8 @@ def validar_cdi_mensal(diario: pd.DataFrame) -> None:
         f"{len(comparacao)} meses fechados "
         f"({comparacao.index[0]} a {comparacao.index[-1]}), "
         f"{len(comparacao) - len(fora)} dentro da tolerância; "
-        f"maior diferença {comparacao['diferenca'].max():.4f} p.p."
+        f"maior diferença {comparacao['diferenca'].max():.4f} p.p. "
+        f"em {comparacao['diferenca'].idxmax()}"
     )
 
     if not fora.empty:

@@ -4,7 +4,7 @@ from src.config import ARQUIVO_DIARIO, ARQUIVO_MENSAL, SERIES_SGS
 from src.extract import extrair_serie_sgs
 from src.load import salvar_csv
 from src.transform import montar_diario, montar_mensal
-from src.validate import validar_cdi_mensal
+from src.validate import validar_cdi_mensal, validar_ipca_12m
 
 
 def main() -> None:
@@ -16,6 +16,7 @@ def main() -> None:
 
     # Se alguma validação reprovar, nenhum arquivo processado é gravado.
     validar_cdi_mensal(diario)
+    validar_ipca_12m(mensal)
 
     # Gravados juntos: os dois arquivos sempre vêm da mesma execução.
     salvar_csv(diario, ARQUIVO_DIARIO)

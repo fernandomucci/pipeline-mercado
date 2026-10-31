@@ -5,17 +5,31 @@ Antes de abrir, rode o pipeline: python -m src.pipeline
 """
 
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
-from src.config import ARQUIVO_DIARIO, DATA_INICIO_ANALISE
+from src.config import ARQUIVO_DIARIO, ARQUIVO_MENSAL, DATA_INICIO_ANALISE
 from src.indicadores import base_100
 
 # Espaçamento entre rótulos do eixo, em milissegundos (unidade do Plotly).
 QUINZE_DIAS_MS = 15 * 24 * 60 * 60 * 1000
 
-# Séries do gráfico comparativo: coluna do diario.csv -> nome na legenda.
-SERIES_GRAFICO = {"cdi_indice": "CDI", "dolar": "Dólar"}
+# Séries diárias do gráfico comparativo: coluna do diario.csv -> nome na legenda.
+SERIES_DIARIAS = {"cdi_indice": "CDI", "dolar": "Dólar"}
+
+# Cor fixa de cada série em todos os gráficos (paleta Okabe-Ito, que continua
+# distinguível para quem tem daltonismo). Definida por série, para que as cores
+# não mudem quando outra série entrar.
+CORES = {
+    "CDI": "#0072B2",       # azul
+    "Dólar": "#009E73",     # verde
+    "IPCA": "#CC79A7",      # roxo-avermelhado
+    "Ibovespa": "#D55E00",  # vermelho-alaranjado
+}
+
+# Abreviações fixas: strftime("%b") depende do idioma do sistema operacional.
+MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun",
+            "jul", "ago", "set", "out", "nov", "dez"]
 
 
 def formatar_numero(valor: float, casas: int) -> str:
@@ -29,6 +43,11 @@ def formatar_pct(valor: float) -> str:
     return f"{formatar_numero(valor, 2)}%"
 
 
+def rotulo_mes(mes: pd.Period) -> str:
+    """Period('2026-09') -> 'set/2026'."""
+    return f"{MESES_PT[mes.month - 1]}/{mes.year}"
+
+
 def ultimo_valido(tabela: pd.DataFrame, coluna: str) -> pd.Series:
     """Última linha em que `coluna` tem dado.
 
@@ -38,14 +57,46 @@ def ultimo_valido(tabela: pd.DataFrame, coluna: str) -> pd.Series:
     return tabela.dropna(subset=[coluna]).iloc[-1]
 
 
+def pontos_ipca(mensal: pd.DataFrame, inicio: pd.Timestamp) -> pd.DataFrame:
+    """Pontos do IPCA em base 100 a partir de `inicio`.
+
+    Base: índice do mês ANTERIOR ao mês de início, para que a inflação do
+    mês de início conte inteira (regra conservadora: num início no meio do
+    mês, superestima a inflação em vez de subestimar).
+    O ponto 100 fica na própria data de início, junto com as outras linhas;
+    os demais ficam no último dia de cada mês divulgado.
+
+    Devolve tabela vazia se o índice do mês-base não estiver disponível.
+    """
+    indice = mensal.set_index("mes")["ipca_indice"]
+    mes_inicio = inicio.to_period("M")
+    mes_base = mes_inicio - 1
+
+    if mes_base not in indice.index:
+        return pd.DataFrame(columns=["data", "valor", "rotulo"])
+
+    base = indice[mes_base]
+    meses = indice.loc[mes_inicio:]  # meses divulgados a partir do início
+
+    return pd.DataFrame(
+        {
+            "data": [inicio, *(m.end_time.normalize() for m in meses.index)],
+            "valor": [100.0, *(meses / base * 100)],
+            "rotulo": [f"base {rotulo_mes(mes_base)}",
+                       *(rotulo_mes(m) for m in meses.index)],
+        }
+    )
+
+
 st.set_page_config(page_title="Indicadores de mercado", layout="wide")
 st.title("Indicadores de mercado")
 
 # --- Dados ---------------------------------------------------------------------
 
-if not ARQUIVO_DIARIO.exists():
+faltando = [c.name for c in (ARQUIVO_DIARIO, ARQUIVO_MENSAL) if not c.exists()]
+if faltando:
     st.error(
-        "Arquivo data/processed/diario.csv não encontrado. "
+        f"Arquivo(s) não encontrado(s) em data/processed: {', '.join(faltando)}. "
         "Rode antes: python -m src.pipeline"
     )
     st.stop()
@@ -56,9 +107,16 @@ diario = pd.read_csv(ARQUIVO_DIARIO, parse_dates=["data"], date_format="%Y-%m-%d
 # não para ser exibida.
 diario = diario[diario["data"] >= pd.Timestamp(DATA_INICIO_ANALISE)]
 
+# O mês vem como texto (2026-09) e volta a ser período. O mensal NÃO é
+# cortado no início da análise: a base do IPCA para 01/10/2021 é set/2021.
+mensal = pd.read_csv(ARQUIVO_MENSAL, dtype={"mes": str})
+mensal = mensal.assign(
+    mes=pd.to_datetime(mensal["mes"], format="%Y-%m").dt.to_period("M")
+)
+
 # --- Cartões: situação atual, cada um com a data do próprio dado ----------------
 
-col_cdi, col_dolar = st.columns(2)
+col_cdi, col_dolar, col_ipca = st.columns(3)
 
 with col_cdi:
     # A taxa ao ano nunca é preenchida: ela marca as datas reais do CDI.
@@ -71,11 +129,16 @@ with col_dolar:
     st.metric("Dólar (PTAX venda)", f"R$ {formatar_numero(dolar['dolar'], 4)}")
     st.caption(f"Cotação de {dolar['data']:%d/%m/%Y}.")
 
+with col_ipca:
+    ipca = ultimo_valido(mensal, "ipca_12m")
+    st.metric(f"IPCA 12 meses até {rotulo_mes(ipca['mes'])}", formatar_pct(ipca["ipca_12m"]))
+    st.caption("Inflação oficial (IBGE), divulgada no mês seguinte ao de referência.")
+
 # --- Gráfico comparativo em base 100 -------------------------------------------
 
-# Só datas em que TODAS as séries do gráfico têm dado, para que as linhas
-# comparem exatamente o mesmo período.
-completo = diario[["data", *SERIES_GRAFICO]].dropna()
+# Séries diárias: só datas em que TODAS têm dado, para compararem o mesmo
+# período. O IPCA entra com os próprios pontos mensais, da tabela mensal.
+completo = diario[["data", *SERIES_DIARIAS]].dropna()
 
 data_min = completo["data"].iloc[0].date()
 data_max = completo["data"].iloc[-1].date()
@@ -101,22 +164,55 @@ if len(periodo) < 2:
         "para ver a evolução."
     )
 else:
-    grafico = periodo[["data"]].assign(
-        **{rotulo: base_100(periodo[coluna]) for coluna, rotulo in SERIES_GRAFICO.items()}
-    )
+    inicio_real = periodo["data"].iloc[0]
+    fig = go.Figure()
 
-    fig = px.line(
-        grafico,
-        x="data",
-        y=list(SERIES_GRAFICO.values()),
-        title=f"R$ 100 aplicados em {periodo['data'].iloc[0]:%d/%m/%Y}",
-    )
-    fig.update_traces(hovertemplate="%{fullData.name}: R$ %{y:.2f}<extra></extra>")
+    for coluna, nome in SERIES_DIARIAS.items():
+        fig.add_trace(
+            go.Scatter(
+                x=periodo["data"],
+                y=base_100(periodo[coluna]),
+                name=nome,
+                mode="lines",
+                line=dict(color=CORES[nome]),
+                hovertemplate=f"{nome}: R$ %{{y:.2f}}<extra></extra>",
+            )
+        )
+
+    # IPCA: precisa de pelo menos um mês divulgado depois do ponto-base.
+    pontos = pontos_ipca(mensal, inicio_real)
+    mes_base = rotulo_mes(inicio_real.to_period("M") - 1)
+    if len(pontos) >= 2:
+        fig.add_trace(
+            go.Scatter(
+                x=pontos["data"],
+                y=pontos["valor"],
+                name="IPCA",
+                mode="lines+markers",
+                line=dict(color=CORES["IPCA"]),
+                customdata=pontos["rotulo"],
+                # O mês no texto evita confundir o ponto mensal com o valor
+                # do dia sob o cursor (a caixa unificada mostra o mais próximo).
+                hovertemplate="IPCA (%{customdata}): R$ %{y:.2f}<extra></extra>",
+            )
+        )
+        nota_ipca = (
+            "IPCA: quanto os R$ 100 precisariam valer para manter o poder de "
+            f"compra, com a inflação desde o início do mês da data escolhida "
+            f"(base: índice de {mes_base}); pontos nos fins de mês divulgados, "
+            f"até {pontos['rotulo'].iloc[-1]}."
+        )
+    else:
+        nota_ipca = (
+            "IPCA: ainda não há mês divulgado a partir de "
+            f"{rotulo_mes(inicio_real.to_period('M'))}, por isso não aparece."
+        )
+
     fig.update_layout(
+        title=f"R$ 100 aplicados em {inicio_real:%d/%m/%Y}",
         separators=",.",            # vírgula decimal e ponto de milhar
         xaxis_title=None,
         yaxis_title="R$",
-        legend_title_text=None,
         hovermode="x unified",      # uma caixa com todas as séries na mesma data
         xaxis_hoverformat="%d/%m/%Y",
         # O formato dos rótulos depende do espaçamento que o Plotly escolhe
@@ -134,6 +230,7 @@ else:
     st.caption(
         "CDI: 100% do CDI, bruto de impostos. "
         "Dólar: variação da PTAX venda, como dólar parado, sem rendimento. "
-        f"O gráfico vai até {periodo['data'].iloc[-1]:%d/%m/%Y}, "
-        "a última data em que todas as séries têm dado."
+        f"{nota_ipca} "
+        f"CDI e dólar vão até {periodo['data'].iloc[-1]:%d/%m/%Y}, "
+        "a última data em que os dois têm dado."
     )

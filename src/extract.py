@@ -13,9 +13,11 @@ from src.config import (
     TIMEOUT_REQUISICAO,
 )
 
+
 def data_fim_padrao() -> date:
     """Último dia considerado: ontem, para não pegar valor parcial do dia."""
     return date.today() - timedelta(days=1)
+
 
 def baixar_serie_sgs(codigo: int, inicio: date, fim: date) -> pd.DataFrame:
     """Baixa uma série do SGS e devolve as colunas como vieram da API (texto)."""
@@ -47,12 +49,13 @@ def baixar_serie_sgs(codigo: int, inicio: date, fim: date) -> pd.DataFrame:
         )
     return df
 
+
 def extrair_serie_sgs(
     nome: str,
     inicio: date = DATA_INICIO_EXTRACAO,
     fim: date | None = None,
 ) -> None:
-    """Baixa a série nome de SERIES_SGS e grava em data/raw/<nome>.csv."""
+    """Baixa a série `nome` de SERIES_SGS e grava em data/raw/<nome>.csv."""
     fim = fim or data_fim_padrao()
     df = baixar_serie_sgs(SERIES_SGS[nome], inicio, fim)
 
@@ -65,5 +68,7 @@ def extrair_serie_sgs(
         f"a {df['data'].iloc[-1]} -> {caminho}"
     )
 
+
 if __name__ == "__main__":
-    extrair_serie_sgs("cdi")
+    for nome in SERIES_SGS:
+        extrair_serie_sgs(nome)

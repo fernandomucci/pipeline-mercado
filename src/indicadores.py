@@ -23,6 +23,27 @@ def indice_acumulado_d1(taxa_pct: pd.Series) -> pd.Series:
     return fator.shift(1, fill_value=1.0).cumprod()
 
 
+def indice_acumulado(taxa_pct: pd.Series) -> pd.Series:
+    """Índice acumulado (base 1,0) de uma variação % por período, INCLUINDO o
+    próprio período: o valor de cada período já contém a variação dele.
+
+    É a convenção do IPCA: a inflação de setembro acontece ao longo de
+    setembro, então o índice de setembro já a inclui. Compare com
+    indice_acumulado_d1, usado no CDI, em que a taxa de um dia só aparece
+    no dia útil seguinte.
+    """
+    return (1 + taxa_pct / 100).cumprod()
+
+
+def variacao_acumulada(indice: pd.Series, periodos: int) -> pd.Series:
+    """Variação % do índice em relação ao valor de `periodos` posições antes.
+
+    A série precisa ser contínua (sem períodos faltando) para que
+    `periodos` posições signifiquem `periodos` meses.
+    """
+    return (indice / indice.shift(periodos) - 1) * 100
+
+
 def anualizar_taxa_diaria(
     taxa_pct_dia: pd.Series, dias: int = DIAS_UTEIS_ANO
 ) -> pd.Series:

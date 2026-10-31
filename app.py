@@ -38,17 +38,24 @@ diario = pd.read_csv(ARQUIVO_DIARIO, parse_dates=["data"], date_format="%Y-%m-%d
 # não para ser exibida.
 diario = diario[diario["data"] >= pd.Timestamp(DATA_INICIO_ANALISE)]
 
-ultima = diario.iloc[-1]
-
 # --- Cartão: CDI ao ano --------------------------------------------------------
 
-st.metric("CDI ao ano", formatar_pct(ultima["cdi_taxa_ano"]))
-st.caption(f"Taxa de {ultima['data']:%d/%m/%Y}, anualizada em 252 dias úteis.")
+# Último dado real do CDI: a taxa nunca é preenchida, então no fim da tabela
+# ela pode estar vazia (dias em que outra série já tem dado e o CDI ainda não).
+ultima_cdi = diario.dropna(subset=["cdi_taxa_ano"]).iloc[-1]
+
+st.metric("CDI ao ano", formatar_pct(ultima_cdi["cdi_taxa_ano"]))
+st.caption(f"Taxa de {ultima_cdi['data']:%d/%m/%Y}, anualizada em 252 dias úteis.")
 
 # --- Linha: CDI em base 100 ----------------------------------------------------
 
-data_min = diario["data"].iloc[0].date()
-data_max = diario["data"].iloc[-1].date()
+# O gráfico só usa datas em que TODAS as séries exibidas têm dado, para que as
+# linhas comparem exatamente o mesmo período.
+colunas_grafico = ["cdi_indice"]
+completo = diario[["data", *colunas_grafico]].dropna()
+
+data_min = completo["data"].iloc[0].date()
+data_max = completo["data"].iloc[-1].date()
 
 inicio = st.date_input(
     "Início da comparação",
@@ -60,7 +67,7 @@ inicio = st.date_input(
 
 # Primeiro dia com dado a partir da data escolhida (se for fim de semana ou
 # feriado, a aplicação começa no próximo dia útil).
-periodo = diario[diario["data"] >= pd.Timestamp(inicio)]
+periodo = completo[completo["data"] >= pd.Timestamp(inicio)]
 
 # Uma linha precisa de pelo menos dois pontos. Em vez de esconder datas no
 # seletor, avisa e não desenha; o resto do dashboard continua sendo exibido.

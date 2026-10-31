@@ -14,10 +14,28 @@ from src.indicadores import base_100
 # Espaçamento entre rótulos do eixo, em milissegundos (unidade do Plotly).
 QUINZE_DIAS_MS = 15 * 24 * 60 * 60 * 1000
 
+# Séries do gráfico comparativo: coluna do diario.csv -> nome na legenda.
+SERIES_GRAFICO = {"cdi_indice": "CDI", "dolar": "Dólar"}
+
+
+def formatar_numero(valor: float, casas: int) -> str:
+    """1234.5 -> '1.234,50' (ponto de milhar e vírgula decimal)."""
+    texto = f"{valor:,.{casas}f}"
+    return texto.replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 def formatar_pct(valor: float) -> str:
-    """13.6512 -> '13,65%' (vírgula decimal, padrão brasileiro)."""
-    return f"{valor:.2f}%".replace(".", ",")
+    """13.6512 -> '13,65%'."""
+    return f"{formatar_numero(valor, 2)}%"
+
+
+def ultimo_valido(tabela: pd.DataFrame, coluna: str) -> pd.Series:
+    """Última linha em que `coluna` tem dado.
+
+    Como o preenchimento só acontece entre datas reais, o último valor
+    preenchido de qualquer coluna é sempre um dado real da fonte.
+    """
+    return tabela.dropna(subset=[coluna]).iloc[-1]
 
 
 st.set_page_config(page_title="Indicadores de mercado", layout="wide")
@@ -38,21 +56,26 @@ diario = pd.read_csv(ARQUIVO_DIARIO, parse_dates=["data"], date_format="%Y-%m-%d
 # não para ser exibida.
 diario = diario[diario["data"] >= pd.Timestamp(DATA_INICIO_ANALISE)]
 
-# --- Cartão: CDI ao ano --------------------------------------------------------
+# --- Cartões: situação atual, cada um com a data do próprio dado ----------------
 
-# Último dado real do CDI: a taxa nunca é preenchida, então no fim da tabela
-# ela pode estar vazia (dias em que outra série já tem dado e o CDI ainda não).
-ultima_cdi = diario.dropna(subset=["cdi_taxa_ano"]).iloc[-1]
+col_cdi, col_dolar = st.columns(2)
 
-st.metric("CDI ao ano", formatar_pct(ultima_cdi["cdi_taxa_ano"]))
-st.caption(f"Taxa de {ultima_cdi['data']:%d/%m/%Y}, anualizada em 252 dias úteis.")
+with col_cdi:
+    # A taxa ao ano nunca é preenchida: ela marca as datas reais do CDI.
+    cdi = ultimo_valido(diario, "cdi_taxa_ano")
+    st.metric("CDI ao ano", formatar_pct(cdi["cdi_taxa_ano"]))
+    st.caption(f"Taxa de {cdi['data']:%d/%m/%Y}, anualizada em 252 dias úteis.")
 
-# --- Linha: CDI em base 100 ----------------------------------------------------
+with col_dolar:
+    dolar = ultimo_valido(diario, "dolar")
+    st.metric("Dólar (PTAX venda)", f"R$ {formatar_numero(dolar['dolar'], 4)}")
+    st.caption(f"Cotação de {dolar['data']:%d/%m/%Y}.")
 
-# O gráfico só usa datas em que TODAS as séries exibidas têm dado, para que as
-# linhas comparem exatamente o mesmo período.
-colunas_grafico = ["cdi_indice"]
-completo = diario[["data", *colunas_grafico]].dropna()
+# --- Gráfico comparativo em base 100 -------------------------------------------
+
+# Só datas em que TODAS as séries do gráfico têm dado, para que as linhas
+# comparem exatamente o mesmo período.
+completo = diario[["data", *SERIES_GRAFICO]].dropna()
 
 data_min = completo["data"].iloc[0].date()
 data_max = completo["data"].iloc[-1].date()
@@ -78,24 +101,24 @@ if len(periodo) < 2:
         "para ver a evolução."
     )
 else:
-    grafico = pd.DataFrame(
-        {
-            "data": periodo["data"],
-            "CDI": base_100(periodo["cdi_indice"]),
-        }
+    grafico = periodo[["data"]].assign(
+        **{rotulo: base_100(periodo[coluna]) for coluna, rotulo in SERIES_GRAFICO.items()}
     )
 
     fig = px.line(
         grafico,
         x="data",
-        y="CDI",
-        title=f"R$ 100 aplicados no CDI em {periodo['data'].iloc[0]:%d/%m/%Y}",
+        y=list(SERIES_GRAFICO.values()),
+        title=f"R$ 100 aplicados em {periodo['data'].iloc[0]:%d/%m/%Y}",
     )
-    fig.update_traces(hovertemplate="%{x|%d/%m/%Y}<br>R$ %{y:.2f}<extra></extra>")
+    fig.update_traces(hovertemplate="%{fullData.name}: R$ %{y:.2f}<extra></extra>")
     fig.update_layout(
         separators=",.",            # vírgula decimal e ponto de milhar
         xaxis_title=None,
         yaxis_title="R$",
+        legend_title_text=None,
+        hovermode="x unified",      # uma caixa com todas as séries na mesma data
+        xaxis_hoverformat="%d/%m/%Y",
         # O formato dos rótulos depende do espaçamento que o Plotly escolhe
         # (vale também com zoom). Os passos automáticos do Plotly saltam de
         # 14 dias direto para 1 mês, então o corte em 15 dias separa
@@ -108,3 +131,9 @@ else:
     )
 
     st.plotly_chart(fig)
+    st.caption(
+        "CDI: 100% do CDI, bruto de impostos. "
+        "Dólar: variação da PTAX venda, como dólar parado, sem rendimento. "
+        f"O gráfico vai até {periodo['data'].iloc[-1]:%d/%m/%Y}, "
+        "a última data em que todas as séries têm dado."
+    )

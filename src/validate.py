@@ -3,13 +3,11 @@
 import pandas as pd
 
 from src.config import (
-    ARQUIVO_DIARIO,
     ARQUIVO_MENSAL,
     DATA_INICIO_EXTRACAO,
     SERIE_VALIDACAO_CDI_MES,
 )
 from src.extract import baixar_serie_sgs, data_fim_padrao
-from src.indicadores import variacao_mensal_d1
 from src.transform import CORRECOES_IBOV, ler_raw_ibov
 
 # Meia unidade da 2ª casa decimal: o maior erro de um valor arredondado
@@ -48,19 +46,18 @@ TOLERANCIA_IBOV_PONTOS = 1.0
 # --- CDI -----------------------------------------------------------------------
 
 
-def validar_cdi_mensal(diario: pd.DataFrame) -> None:
-    """Compara o CDI mensal do índice D-1 com a série 4391 do SGS (meses fechados).
+def validar_cdi_mensal(mensal: pd.DataFrame) -> None:
+    """Compara a coluna cdi_mes da tabela mensal com a série 4391 do SGS.
+
+    A coluna já tem só meses fechados (calculados pelo índice D-1 no transform),
+    então o número conferido é exatamente o que é gravado e exibido.
 
     Tolerância: 0,005 p.p. O cálculo usa a série diária com 6 casas, e só a
     4391 vem arredondada para 2 casas.
 
     Levanta ValueError se algum mês ficar fora da tolerância.
     """
-    # Só as datas em que o CDI existe de fato: a taxa ao ano nunca é
-    # preenchida, então ela marca as datas reais da série 12. Isso deixa de
-    # fora o fim vazio e, quando o Ibovespa entrar, datas só da bolsa.
-    cdi = diario.dropna(subset=["cdi_taxa_ano"])
-    calculado = variacao_mensal_d1(cdi["data"], cdi["cdi_indice"])
+    calculado = mensal.dropna(subset=["cdi_mes"]).set_index("mes")["cdi_mes"]
 
     bruto = baixar_serie_sgs(
         SERIE_VALIDACAO_CDI_MES, DATA_INICIO_EXTRACAO, data_fim_padrao()
@@ -124,7 +121,9 @@ def validar_ipca_12m(mensal: pd.DataFrame) -> None:
     (ver tolerancia_acumulado). Levanta ValueError se algum mês de referência
     faltar na tabela ou ficar fora da tolerância.
     """
-    por_mes = mensal.set_index("mes")
+    # Só os meses com IPCA divulgado: a tabela pode ter um mês a mais, só com
+    # o CDI, entre o fechamento do CDI e a divulgação do IPCA.
+    por_mes = mensal.dropna(subset=["ipca_mes"]).set_index("mes")
 
     linhas = []
     for mes_texto, oficial in IPCA_12M_IBGE.items():
@@ -132,8 +131,8 @@ def validar_ipca_12m(mensal: pd.DataFrame) -> None:
 
         if mes not in por_mes.index:
             raise ValueError(
-                f"Validação do IPCA: o mês de referência {mes} não existe na "
-                f"tabela mensal, que vai de {por_mes.index[0]} a {por_mes.index[-1]}."
+                f"Validação do IPCA: o mês de referência {mes} não existe nos "
+                f"dados do IPCA, que vão de {por_mes.index[0]} a {por_mes.index[-1]}."
             )
 
         calculado = por_mes.at[mes, "ipca_12m"]
@@ -247,15 +246,12 @@ def validar_ibovespa(ibov_yahoo: pd.DataFrame) -> None:
 
 
 if __name__ == "__main__":
-    # Valida os arquivos já gravados, sem rodar o pipeline inteiro.
-    diario_gravado = pd.read_csv(
-        ARQUIVO_DIARIO, parse_dates=["data"], date_format="%Y-%m-%d"
-    )
+    # Valida os dados já gravados, sem rodar o pipeline inteiro.
     mensal_gravado = pd.read_csv(ARQUIVO_MENSAL, dtype={"mes": str})
     mensal_gravado = mensal_gravado.assign(
         mes=pd.to_datetime(mensal_gravado["mes"], format="%Y-%m").dt.to_period("M")
     )
 
-    validar_cdi_mensal(diario_gravado)
+    validar_cdi_mensal(mensal_gravado)
     validar_ipca_12m(mensal_gravado)
     validar_ibovespa(ler_raw_ibov())

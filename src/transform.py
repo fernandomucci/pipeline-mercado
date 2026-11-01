@@ -23,10 +23,6 @@ CORRECOES_IBOV = {
     "2022-12-29": 109734.60,
 }
 
-# O Yahoo traz o Ibovespa em pontos inteiros: diferenças de até 1 ponto podem
-# vir só do arredondamento ou corte dos centavos.
-LIMITE_ARREDONDAMENTO_IBOV = 1.0
-
 DIAS_SEMANA_PT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 
 
@@ -59,7 +55,7 @@ def ler_raw_sgs(nome: str) -> pd.DataFrame:
 
 
 def ler_raw_ibov() -> pd.DataFrame:
-    """Lê data/raw/ibov.csv e devolve data, abertura e fechamento (do Yahoo).
+    """Lê data/raw/ibov.csv e devolve data e fechamento (do Yahoo).
 
     A data vem com o fuso da bolsa. O fuso é removido SEM conversão (a hora
     local é mantida) e toda hora precisa ser 00:00. Se não for, o carimbo não
@@ -67,7 +63,7 @@ def ler_raw_ibov() -> pd.DataFrame:
     """
     bruto = pd.read_csv(DIR_RAW / "ibov.csv")
 
-    colunas_esperadas = {"Date", "Open", "Close"}
+    colunas_esperadas = {"Date", "Close"}
     if not colunas_esperadas.issubset(bruto.columns):
         raise ValueError(
             f"ibov: colunas inesperadas no bruto {list(bruto.columns)}; "
@@ -88,7 +84,6 @@ def ler_raw_ibov() -> pd.DataFrame:
     df = pd.DataFrame(
         {
             "data": datas.dt.as_unit("ns"),
-            "abertura": pd.to_numeric(bruto["Open"]),
             "fechamento": pd.to_numeric(bruto["Close"]),
         }
     )
@@ -109,7 +104,7 @@ def ler_raw_ibov() -> pd.DataFrame:
     return df
 
 
-# --- Ibovespa: correções e conferência informativa -----------------------------
+# --- Ibovespa: correções --------------------------------------------------------
 
 
 def aplicar_correcoes_ibov(ibov: pd.DataFrame) -> pd.DataFrame:
@@ -136,38 +131,6 @@ def aplicar_correcoes_ibov(ibov: pd.DataFrame) -> pd.DataFrame:
 
     corrigido = correcoes.combine_first(fechamento).rename_axis("data").rename("ibov")
     return corrigido.reset_index()
-
-
-def relatar_fechamento_x_abertura(ibov: pd.DataFrame) -> None:
-    """Informativo: compara o fechamento de cada pregão com a abertura do
-    pregão seguinte, no próprio Yahoo e antes das correções.
-
-    Se a abertura do Yahoo costuma repetir o fechamento anterior, os dias
-    que fogem disso são candidatos a fechamento errado, para conferir na B3.
-    Diferenças de até 1 ponto são explicadas pelos pontos inteiros do Yahoo
-    (o mesmo raciocínio da tolerância da validação). Não para o pipeline.
-    """
-    diferenca = (ibov["abertura"].shift(-1) - ibov["fechamento"]).abs().dropna()
-
-    iguais = int((diferenca == 0).sum())
-    ate_1 = int((diferenca <= LIMITE_ARREDONDAMENTO_IBOV).sum())
-    print(
-        f"Fechamento x abertura seguinte (ibov): {len(diferenca)} pares de pregões; "
-        f"{iguais} iguais e {ate_1} com diferença de até 1 ponto."
-    )
-
-    acima = diferenca[diferenca > LIMITE_ARREDONDAMENTO_IBOV]
-    if acima.empty:
-        print("  Nenhuma diferença acima de 1 ponto.")
-        return
-
-    maiores = acima.nlargest(10)
-    detalhes = ", ".join(
-        f"{ibov.at[i, 'data']:%d/%m/%Y} ({valor:.0f} pts)" for i, valor in maiores.items()
-    )
-    print(
-        f"  {len(acima)} acima de 1 ponto; as maiores, pela data do fechamento: {detalhes}"
-    )
 
 
 # --- Calendários ---------------------------------------------------------------
@@ -223,7 +186,6 @@ def montar_diario() -> pd.DataFrame:
     dolar = pd.DataFrame({"data": ptax["data"], "dolar": ptax["valor"]})
     ibov_corrigido = aplicar_correcoes_ibov(ibov)
 
-    relatar_fechamento_x_abertura(ibov)
     relatar_calendarios({"cdi": cdi["data"], "ptax": ptax["data"], "ibov": ibov["data"]})
 
     # União das datas: nenhuma data de nenhuma série é descartada.

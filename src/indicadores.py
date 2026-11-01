@@ -51,6 +51,17 @@ def anualizar_taxa_diaria(
     return ((1 + taxa_pct_dia / 100) ** dias - 1) * 100
 
 
+def juro_real(nominal_pct: pd.Series, inflacao_pct: pd.Series) -> pd.Series:
+    """Juro real em %, pela divisão: (1 + nominal) / (1 + inflação) - 1.
+
+    A subtração (nominal - inflação) superestima o ganho real, porque trata o
+    ganho nominal como se ele não tivesse perdido valor com a inflação. O erro
+    cresce com a inflação: CDI 20% e IPCA 10% dão 10% pela subtração e 9,09%
+    pela divisão.
+    """
+    return ((1 + nominal_pct / 100) / (1 + inflacao_pct / 100) - 1) * 100
+
+
 def base_100(indice: pd.Series) -> pd.Series:
     """Reescala um índice para valer 100 na primeira posição da série recebida."""
     return indice / indice.iloc[0] * 100

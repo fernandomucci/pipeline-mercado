@@ -36,8 +36,8 @@ CORES = {
 # Fonte: Conselho Monetário Nacional (CMN), Resolução CMN nº 5.141/2024.
 # Valor fixo: mudanças precisam ser anunciadas com 36 meses de antecedência.
 META_IPCA = 3.0
+PISO_META_IPCA = 1.5
 TETO_META_IPCA = 4.5
-
 # Abreviações fixas: strftime("%b") depende do idioma do sistema operacional.
 MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun",
             "jul", "ago", "set", "out", "nov", "dez"]
@@ -82,9 +82,11 @@ def pontos_ipca(mensal: pd.DataFrame, inicio: pd.Timestamp) -> pd.DataFrame:
     O ponto 100 fica na própria data de início, junto com as outras linhas;
     os demais ficam no último dia de cada mês divulgado.
 
-    Devolve tabela vazia se o índice do mês-base não estiver disponível.
+    Usa só os meses com IPCA divulgado: a tabela mensal pode ter um mês a
+    mais, só com o CDI. Devolve tabela vazia se o índice do mês-base não
+    estiver disponível.
     """
-    indice = mensal.set_index("mes")["ipca_indice"]
+    indice = mensal.dropna(subset=["ipca_indice"]).set_index("mes")["ipca_indice"]
     mes_inicio = inicio.to_period("M")
     mes_base = mes_inicio - 1
 
@@ -144,8 +146,8 @@ with col_ipca:
     ipca = ultimo_valido(mensal, "ipca_12m")
     st.metric(f"IPCA 12 meses até {rotulo_mes(ipca['mes'])}", formatar_pct(ipca["ipca_12m"]))
     st.caption(
-        f"Meta: {formatar_pct_curto(META_IPCA)}, tolerância até "
-        f"{formatar_pct_curto(TETO_META_IPCA)}. "
+        f"Meta: {formatar_pct_curto(META_IPCA)} (intervalo de "
+        f"{formatar_pct_curto(PISO_META_IPCA)} a {formatar_pct_curto(TETO_META_IPCA)}). "
         "Inflação oficial (IBGE), divulgada no mês seguinte ao de referência."
     )
 

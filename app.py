@@ -15,7 +15,11 @@ from src.indicadores import base_100
 QUINZE_DIAS_MS = 15 * 24 * 60 * 60 * 1000
 
 # Séries diárias do gráfico comparativo: coluna do diario.csv -> nome na legenda.
-SERIES_DIARIAS = {"cdi_indice": "CDI", "dolar": "Dólar"}
+SERIES_DIARIAS = {"cdi_indice": "CDI", "ibov": "Ibovespa", "dolar": "Dólar"}
+
+# Ordem das séries nos cartões e na legenda: taxas em % juntas (juro x
+# inflação), depois os preços de mercado.
+ORDEM_SERIES = ["CDI", "IPCA", "Ibovespa", "Dólar"]
 
 # Cor fixa de cada série em todos os gráficos (paleta Okabe-Ito, que continua
 # distinguível para quem tem daltonismo). Definida por série, para que as cores
@@ -26,6 +30,13 @@ CORES = {
     "IPCA": "#CC79A7",      # roxo-avermelhado
     "Ibovespa": "#D55E00",  # vermelho-alaranjado
 }
+
+# Meta de inflação (IPCA acumulado em 12 meses), no regime de meta contínua em
+# vigor desde 2025: centro de 3% e tolerância de 1,5 ponto para cima ou para baixo.
+# Fonte: Conselho Monetário Nacional (CMN), Resolução CMN nº 5.141/2024.
+# Valor fixo: mudanças precisam ser anunciadas com 36 meses de antecedência.
+META_IPCA = 3.0
+TETO_META_IPCA = 4.5
 
 # Abreviações fixas: strftime("%b") depende do idioma do sistema operacional.
 MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun",
@@ -41,6 +52,11 @@ def formatar_numero(valor: float, casas: int) -> str:
 def formatar_pct(valor: float) -> str:
     """13.6512 -> '13,65%'."""
     return f"{formatar_numero(valor, 2)}%"
+
+
+def formatar_pct_curto(valor: float) -> str:
+    """3.0 -> '3%' e 4.5 -> '4,5%' (sem zeros à direita)."""
+    return f"{valor:g}%".replace(".", ",")
 
 
 def rotulo_mes(mes: pd.Period) -> str:
@@ -116,7 +132,7 @@ mensal = mensal.assign(
 
 # --- Cartões: situação atual, cada um com a data do próprio dado ----------------
 
-col_cdi, col_dolar, col_ipca = st.columns(3)
+col_cdi, col_ipca, col_ibov, col_dolar = st.columns(4)
 
 with col_cdi:
     # A taxa ao ano nunca é preenchida: ela marca as datas reais do CDI.
@@ -124,15 +140,25 @@ with col_cdi:
     st.metric("CDI ao ano", formatar_pct(cdi["cdi_taxa_ano"]))
     st.caption(f"Taxa de {cdi['data']:%d/%m/%Y}, anualizada em 252 dias úteis.")
 
+with col_ipca:
+    ipca = ultimo_valido(mensal, "ipca_12m")
+    st.metric(f"IPCA 12 meses até {rotulo_mes(ipca['mes'])}", formatar_pct(ipca["ipca_12m"]))
+    st.caption(
+        f"Meta: {formatar_pct_curto(META_IPCA)}, tolerância até "
+        f"{formatar_pct_curto(TETO_META_IPCA)}. "
+        "Inflação oficial (IBGE), divulgada no mês seguinte ao de referência."
+    )
+
+with col_ibov:
+    ibov = ultimo_valido(diario, "ibov")
+    # Sem decimais: o Yahoo traz o Ibovespa em pontos inteiros.
+    st.metric("Ibovespa", f"{formatar_numero(ibov['ibov'], 0)} pontos")
+    st.caption(f"Fechamento de {ibov['data']:%d/%m/%Y}.")
+
 with col_dolar:
     dolar = ultimo_valido(diario, "dolar")
     st.metric("Dólar (PTAX venda)", f"R$ {formatar_numero(dolar['dolar'], 4)}")
     st.caption(f"Cotação de {dolar['data']:%d/%m/%Y}.")
-
-with col_ipca:
-    ipca = ultimo_valido(mensal, "ipca_12m")
-    st.metric(f"IPCA 12 meses até {rotulo_mes(ipca['mes'])}", formatar_pct(ipca["ipca_12m"]))
-    st.caption("Inflação oficial (IBGE), divulgada no mês seguinte ao de referência.")
 
 # --- Gráfico comparativo em base 100 -------------------------------------------
 
@@ -175,6 +201,7 @@ else:
                 name=nome,
                 mode="lines",
                 line=dict(color=CORES[nome]),
+                legendrank=ORDEM_SERIES.index(nome),
                 hovertemplate=f"{nome}: R$ %{{y:.2f}}<extra></extra>",
             )
         )
@@ -190,6 +217,7 @@ else:
                 name="IPCA",
                 mode="lines+markers",
                 line=dict(color=CORES["IPCA"]),
+                legendrank=ORDEM_SERIES.index("IPCA"),
                 customdata=pontos["rotulo"],
                 # O mês no texto evita confundir o ponto mensal com o valor
                 # do dia sob o cursor (a caixa unificada mostra o mais próximo).
@@ -197,14 +225,14 @@ else:
             )
         )
         nota_ipca = (
-            "IPCA: quanto os R$ 100 precisariam valer para manter o poder de "
-            f"compra, com a inflação desde o início do mês da data escolhida "
+            "quanto os R$ 100 precisariam valer para manter o poder de compra, "
+            "com a inflação desde o início do mês da data escolhida "
             f"(base: índice de {mes_base}); pontos nos fins de mês divulgados, "
             f"até {pontos['rotulo'].iloc[-1]}."
         )
     else:
         nota_ipca = (
-            "IPCA: ainda não há mês divulgado a partir de "
+            "ainda não há mês divulgado a partir de "
             f"{rotulo_mes(inicio_real.to_period('M'))}, por isso não aparece."
         )
 
@@ -227,10 +255,19 @@ else:
     )
 
     st.plotly_chart(fig)
-    st.caption(
-        "CDI: 100% do CDI, bruto de impostos. "
-        "Dólar: variação da PTAX venda, como dólar parado, sem rendimento. "
-        f"{nota_ipca} "
-        f"CDI e dólar vão até {periodo['data'].iloc[-1]:%d/%m/%Y}, "
-        "a última data em que os dois têm dado."
-    )
+
+    # Uma linha por série, na mesma ordem dos cartões e da legenda.
+    legenda = [
+        "**CDI:** 100% do CDI, bruto de impostos. Na prática, há IR pela tabela "
+        "regressiva, de 22,5% a 15% conforme o prazo, exceto em aplicações isentas "
+        "para pessoa física, como LCI e LCA.",
+        f"**IPCA:** {nota_ipca}",
+        "**Ibovespa:** índice de retorno total (já inclui dividendos e outros "
+        "proventos reinvestidos), nominal em reais e bruto de impostos e custos.",
+        "**Dólar:** variação da PTAX venda, como dólar parado, sem rendimento. A "
+        "PTAX é uma taxa de referência calculada pelo Banco Central e usada por "
+        "empresas e contratos, não a cotação para comprar dólar.",
+        f"CDI, Ibovespa e dólar vão até {periodo['data'].iloc[-1]:%d/%m/%Y}, "
+        "a última data em que os três têm dado.",
+    ]
+    st.caption("\n".join(f"- {linha}" for linha in legenda))

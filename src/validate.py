@@ -10,6 +10,7 @@ from src.config import (
 )
 from src.extract import baixar_serie_sgs, data_fim_padrao
 from src.indicadores import variacao_mensal_d1
+from src.transform import CORRECOES_IBOV, ler_raw_ibov
 
 # Meia unidade da 2ª casa decimal: o maior erro de um valor arredondado
 # para 2 casas.
@@ -28,6 +29,20 @@ IPCA_12M_IBGE = {
     "2025-12": 4.26,
     "2026-09": 4.58,
 }
+
+# Fechamento oficial do Ibovespa no último pregão de cada ano.
+# Fonte: B3 (estatísticas históricas do Ibovespa). Conferidos em 31/10/2026.
+IBOV_FECHAMENTO_B3 = {
+    "2021-12-30": 104822.44,
+    "2022-12-29": 109734.60,
+    "2023-12-28": 134185.24,
+    "2024-12-30": 120283.40,
+    "2025-12-30": 161125.37,
+}
+
+# O Yahoo traz o Ibovespa em pontos inteiros, e não dá para saber se ele
+# arredonda ou corta os centavos. Nos dois casos, o erro fica abaixo de 1 ponto.
+TOLERANCIA_IBOV_PONTOS = 1.0
 
 
 # --- CDI -----------------------------------------------------------------------
@@ -159,6 +174,78 @@ def validar_ipca_12m(mensal: pd.DataFrame) -> None:
         )
 
 
+# --- Ibovespa ------------------------------------------------------------------
+
+
+def validar_ibovespa(ibov_yahoo: pd.DataFrame) -> None:
+    """Compara o fechamento do Yahoo, ANTES das correções, com o oficial da B3.
+
+    - Referências sem correção precisam bater dentro da tolerância; se algum
+      dia ficar fora, levanta ValueError.
+    - Cada correção é conferida contra o próprio Yahoo: se ainda diverge, é
+      uma divergência conhecida; se passou a bater, a correção ficou
+      obsoleta e o pipeline avisa (sem parar).
+
+    Comparar o dado antes da correção evita a conta circular de validar um
+    valor contra a mesma referência que o substituiu.
+    """
+    fechamento = ibov_yahoo.set_index("data")["fechamento"]
+
+    linhas = []
+    for data_texto, oficial in IBOV_FECHAMENTO_B3.items():
+        if data_texto in CORRECOES_IBOV:
+            continue  # tratada abaixo, junto com as correções
+
+        data = pd.Timestamp(data_texto)
+        if data not in fechamento.index:
+            raise ValueError(
+                f"Validação do Ibovespa: o fechamento de referência de "
+                f"{data:%d/%m/%Y} não existe nos dados do Yahoo."
+            )
+        linhas.append(
+            {
+                "data": data,
+                "yahoo": fechamento[data],
+                "b3": oficial,
+                "diferenca": abs(fechamento[data] - oficial),
+            }
+        )
+
+    comparacao = pd.DataFrame(linhas).set_index("data")
+    fora = comparacao[
+        comparacao["diferenca"] > TOLERANCIA_IBOV_PONTOS + FOLGA_FLOAT
+    ]
+    pior = comparacao["diferenca"].idxmax()
+
+    print(
+        f"Validação Ibovespa x B3: {len(comparacao)} fechamentos de referência "
+        f"sem correção, {len(comparacao) - len(fora)} dentro da tolerância; "
+        f"maior diferença {comparacao.at[pior, 'diferenca']:.2f} pts em "
+        f"{pior:%d/%m/%Y} (tolerância: {TOLERANCIA_IBOV_PONTOS:.0f} ponto)"
+    )
+
+    for data_texto, oficial in CORRECOES_IBOV.items():
+        data = pd.Timestamp(data_texto)
+        yahoo = fechamento[data]  # a existência já foi conferida no transform
+        if abs(yahoo - oficial) > TOLERANCIA_IBOV_PONTOS + FOLGA_FLOAT:
+            print(
+                f"  Divergência conhecida, corrigida no processed: {data:%d/%m/%Y} "
+                f"Yahoo {yahoo:.2f} x B3 {oficial:.2f}"
+            )
+        else:
+            print(
+                f"  AVISO: a correção de {data:%d/%m/%Y} parece obsoleta; o Yahoo "
+                f"agora bate com a B3 ({yahoo:.2f} x {oficial:.2f}). "
+                "Considere removê-la de CORRECOES_IBOV."
+            )
+
+    if not fora.empty:
+        raise ValueError(
+            "Ibovespa fora da tolerância em relação à B3:\n"
+            + fora.round(2).to_string()
+        )
+
+
 if __name__ == "__main__":
     # Valida os arquivos já gravados, sem rodar o pipeline inteiro.
     diario_gravado = pd.read_csv(
@@ -171,3 +258,4 @@ if __name__ == "__main__":
 
     validar_cdi_mensal(diario_gravado)
     validar_ipca_12m(mensal_gravado)
+    validar_ibovespa(ler_raw_ibov())

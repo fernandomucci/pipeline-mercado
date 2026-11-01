@@ -13,10 +13,10 @@ def main() -> None:
     extrair_ibovespa()
 
     diario = montar_diario()
-    mensal = montar_mensal()
+    mensal = montar_mensal(diario)  # o CDI mensal vem do índice diário
 
     # Se alguma validação reprovar, nenhum arquivo processado é gravado.
-    validar_cdi_mensal(diario)
+    validar_cdi_mensal(mensal)
     validar_ipca_12m(mensal)
     validar_ibovespa(ler_raw_ibov())  # dado do Yahoo antes das correções
 

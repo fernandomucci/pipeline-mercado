@@ -7,7 +7,9 @@ from src.indicadores import (
     anualizar_taxa_diaria,
     indice_acumulado,
     indice_acumulado_d1,
+    juro_real,
     variacao_acumulada,
+    variacao_mensal_d1,
 )
 
 # Colunas de nível (índice ou preço): numa data sem dado da própria série,
@@ -226,17 +228,47 @@ def ler_raw_sgs_mensal(nome: str) -> pd.DataFrame:
     return pd.DataFrame({"mes": meses, "valor": df["valor"]})
 
 
-def montar_mensal() -> pd.DataFrame:
-    """Tabela mensal. Por enquanto só com o IPCA; o CDI mensal entra na Etapa 5."""
-    ipca = ler_raw_sgs_mensal("ipca")
-    indice = indice_acumulado(ipca["valor"])
+def montar_mensal(diario: pd.DataFrame) -> pd.DataFrame:
+    """Tabela mensal com IPCA, CDI e juro real em 12 meses, uma linha por mês.
 
-    return pd.DataFrame(
+    Os acumulados de cada série são calculados ANTES da junção, para que
+    "12 posições antes" signifique "12 meses antes" dentro da própria série.
+    A junção é pela união dos meses: num mês com o CDI já fechado e o IPCA
+    ainda não divulgado, as colunas do IPCA e o juro real ficam vazios.
+    """
+    ipca = ler_raw_sgs_mensal("ipca")
+    indice_ipca = indice_acumulado(ipca["valor"])
+    tabela_ipca = pd.DataFrame(
         {
             "mes": ipca["mes"],
             "ipca_mes": ipca["valor"],
-            "ipca_indice": indice,
+            "ipca_indice": indice_ipca,
             # Os 12 primeiros meses ficam vazios: não há 12 meses anteriores.
-            "ipca_12m": variacao_acumulada(indice, 12),
+            "ipca_12m": variacao_acumulada(indice_ipca, 12),
         }
     )
+
+    # CDI do mês a partir do índice D-1 diário, só nas datas reais do CDI (a
+    # taxa ao ano nunca é preenchida) e só para meses fechados. É a mesma conta
+    # que a validação confere contra a série 4391.
+    datas_cdi = diario.dropna(subset=["cdi_taxa_ano"])
+    cdi_mes = variacao_mensal_d1(datas_cdi["data"], datas_cdi["cdi_indice"])
+
+    esperado = pd.period_range(cdi_mes.index[0], cdi_mes.index[-1], freq="M")
+    if len(cdi_mes) != len(esperado):
+        raise ValueError("cdi: há meses faltando no CDI mensal.")
+
+    tabela_cdi = pd.DataFrame(
+        {
+            "mes": cdi_mes.index,
+            "cdi_mes": cdi_mes.to_numpy(),
+            # Mesma janela do IPCA: índice mensal "inclui o próprio mês" e 12 meses.
+            "cdi_12m": variacao_acumulada(indice_acumulado(cdi_mes), 12).to_numpy(),
+        }
+    )
+
+    mensal = tabela_ipca.merge(tabela_cdi, on="mes", how="outer").sort_values(
+        "mes", ignore_index=True
+    )
+    # Vazio quando falta um dos dois lados: nada é estimado.
+    return mensal.assign(juro_real_12m=juro_real(mensal["cdi_12m"], mensal["ipca_12m"]))

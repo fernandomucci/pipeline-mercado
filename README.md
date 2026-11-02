@@ -318,8 +318,8 @@ A validação do Ibovespa compara o **dado original do Yahoo**, antes da correç
 | B | Rentabilidade por janela (1, 3 e 5 anos) | Melhoria futura |
 | C | Base 100 com data inicial escolhível: CDI, Ibovespa, dólar e IPCA | Feito |
 | D | IPCA em 12 meses com a faixa da meta | Cortado como gráfico; a meta atual aparece no cartão do IPCA |
-| E | Juro real em 12 meses, com a linha de empate | Feito (originalmente CDI 12m × IPCA 12m em duas linhas;) |
-
+| E | Juro real em 12 meses, com a linha de empate |Feito (originalmente CDI 12m × IPCA 12m em duas linhas; trocado após a consulta ao profissional da área) |
+ 
 **Por que o bloco D foi cortado:** o gráfico do IPCA em 12 meses com a faixa da meta exigiria a meta de cada mês do período, que não está em nenhuma das fontes e mudou de regime em 2025 (até 2024, havia uma meta diferente para cada ano-calendário). Em vez disso, o cartão do IPCA mostra a meta atual como referência, definida como uma constante única no código, com a fonte (CMN).
 
 ---

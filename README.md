@@ -138,7 +138,7 @@ Gráfico do juro real em 12 meses, à direita, com uma linha no zero marcando o 
 ```
 pipeline-mercado/
 ├── README.md
-├── IA.md                 # relatórios de uso de IA (duas conversas)
+├── IA.md                 # relatórios de uso de IA
 ├── requirements.txt      # versões fixas
 ├── app.py                # dashboard Streamlit; só lê data/processed
 ├── src/
